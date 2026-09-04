@@ -54,19 +54,10 @@ if exist icon.ico set "ICON=--icon=icon.ico"
 rem ---------- 4. run PyInstaller ----------
 echo [2/4] PyInstaller building one-file exe (takes a few minutes)...
 echo.
-rem --uac-admin : exe asks UAC on launch and runs as ADMIN,
-rem               so "Apply profile" always works.
-rem --windowed  : no console window.
-python -m PyInstaller ^
-    --noconfirm ^
-    --clean ^
-    --onefile ^
-    --windowed ^
-    --uac-admin ^
-    --name "NetManagerTool" ^
-    --collect-all PySide6 ^
-    %ICON% ^
-    main.py
+rem Uses nicmanager_slim.spec: keeps only QtWidgets/QtGui/QtCore,
+rem excludes WebEngine/QML/Pdf/etc. => ~28 MB (instead of ~244 MB).
+rem Spec sets --uac-admin, --windowed and the icon automatically.
+python -m PyInstaller --noconfirm --clean nicmanager_slim.spec
 if errorlevel 1 (
     echo [ERROR] Build failed. See messages above.
     pause
