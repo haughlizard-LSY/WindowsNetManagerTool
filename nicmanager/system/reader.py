@@ -85,20 +85,23 @@ def _parse_ps_adapters(text: str) -> List[AdapterInfo]:
 
 # ---------------------------------------------------------------- netsh 降级通道
 
-# 网卡索引表：Idx Met MTU State Name（列名英文，跨语言稳定）
+# 网卡索引表：Idx Met MTU (State|状态) Name —— 仅首列数字+状态英文值稳定
 _INTERFACE_LINE = re.compile(r"^\s*(\d+)\s+\d+\s+\d+\s+(\S+)\s+(.+?)\s*$")
 # show config 接口块头（英文或中文）
-_CONFIG_HEADER_EN = re.compile(r'^Configuration for interface\s+"(.+)"')
-_CONFIG_HEADER_ZH = re.compile(r'^接口\s*"(.+)"\s*的配置')
+_CONFIG_HEADER = re.compile(r'^(?:Configuration for interface|接口)\s*"(.+?)"(?:\s*的配置)?\s*$')
 # DHCP 状态行：DHCP enabled: Yes / DHCP 已启用: 是
-_DHCP_LINE = re.compile(r"DHCP\s+enabled\s*:\s*(Yes|No)", re.IGNORECASE)
-_DHCP_LINE_ZH = re.compile(r"DHCP\s+已启用\s*:\s*(是|否)")
-# IP Address / Subnet Prefix / Default Gateway（值段英文标签，相对稳定）
-_IP_LINE = re.compile(r"IP\s+Address\s*:\s*([0-9.]+)")
-_PREFIX_LINE = re.compile(r"Subnet\s+Prefix\s*:\s*([0-9.]+)/(\d+)\s*\(mask\s*([0-9.]+)\)")
-_GW_LINE = re.compile(r"Default\s+Gateway\s*:\s*([0-9.]+)")
+_DHCP_LINE = re.compile(r"DHCP\s*(?:enabled|已启用)\s*:\s*(Yes|No|是|否)", re.IGNORECASE)
+# IP 地址 / 子网前缀 / 默认网关（中英标签都兼容）
+_IP_LINE = re.compile(r"IP\s*(?:Address|地址)\s*:\s*([0-9.]+)")
+_PREFIX_LINE = re.compile(
+    r"(?:Subnet\s+Prefix|子网前缀)\s*:\s*([0-9.]+)/(\d+)\s*\((?:mask|掩码)\s*([0-9.]+)\)"
+)
+_GW_LINE = re.compile(r"(?:Default\s+Gateway|默认网关)\s*:\s*([0-9.]+)")
 _IPV4_TOKEN = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")
-_DNS_HEAD = re.compile(r"(DNS\s+servers|DNS\s+服务器)\s*:", re.IGNORECASE)
+# DNS 区开始：Statically Configured DNS Servers / 静态配置的 DNS 服务器 / 通过 DHCP 配置的 DNS 服务器
+_DNS_HEAD = re.compile(r"DNS\s*(?:servers|服务器)\s*:", re.IGNORECASE)
+# DNS 区结束标志（中英）
+_DNS_END = re.compile(r"(?:register|注册)", re.IGNORECASE)
 
 
 def _split_config_blocks(text: str) -> dict:
@@ -108,7 +111,7 @@ def _split_config_blocks(text: str) -> dict:
     buf: List[str] = []
     for raw in text.splitlines():
         line = raw.strip()
-        m = _CONFIG_HEADER_EN.match(line) or _CONFIG_HEADER_ZH.match(line)
+        m = _CONFIG_HEADER.match(line)
         if m:
             if cur_name is not None:
                 blocks[cur_name] = buf
@@ -134,7 +137,7 @@ def _parse_config_block(lines: List[str]) -> dict:
             cur_ip = None
 
     for line in lines:
-        m = _DHCP_LINE.search(line) or _DHCP_LINE_ZH.search(line)
+        m = _DHCP_LINE.search(line)
         if m:
             out["dhcp"] = (m.group(1).lower() in ("yes", "是"))
             continue
@@ -164,7 +167,7 @@ def _parse_config_block(lines: List[str]) -> dict:
                 out["dns"].append(m.group(1))
             continue
         if dns_started:
-            if re.search(r"register|注册", line, re.IGNORECASE) and ":" not in line:
+            if _DNS_END.search(line):
                 break
             m = _IPV4_TOKEN.search(line)
             if m and _IP_LINE.search(line) is None and _GW_LINE.search(line) is None:

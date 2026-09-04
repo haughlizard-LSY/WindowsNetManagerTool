@@ -24,34 +24,43 @@ def main():
     # 新建静态
     dlg = ProfileDialog(adapter_name="以太网", existing_names=["已有"])
     assert dlg.rb_static.isChecked()
-    assert dlg.edt_ip.isEnabled()
+    # 初始有两行
+    assert len(dlg._addr_rows) >= 1  # noqa: SLF001
+    row0 = dlg._addr_rows[0]  # noqa: SLF001
+    assert row0.edt_ip.isEnabled()
     dlg.edt_name.setText("测试档案")
-    dlg.edt_ip.setText("192.168.1.50")
+    row0.edt_ip.setText("192.168.1.50")
+    # 添加附加 IP
+    dlg._add_row("10.0.0.9", 24)  # noqa: SLF001
     dlg.edt_gateway.setText("192.168.1.1")
     dlg.edt_dns1.setText("223.5.5.5")
     dlg._on_accept()  # noqa: SLF001
     p = dlg.result_profile()
     assert p is not None and p.mode == "static" and p.ip == "192.168.1.50"
-    log(f"static dialog ok: {p.summary()}")
+    assert p.extra_ips == ["10.0.0.9/24"]
+    log(f"static multi-ip dialog ok: {p.summary()}")
 
     # 新建 DHCP
     dlg2 = ProfileDialog(adapter_name="WLAN", existing_names=[])
     dlg2.rb_dhcp.setChecked(True)
     dlg2.edt_name.setText("DHCP档案")
-    dlg2.edt_ip.setText("bad-ip")  # DHCP 下应忽略
+    dlg2._addr_rows[0].edt_ip.setText("bad-ip")  # noqa: SLF001  # DHCP 下应忽略
     dlg2._on_accept()  # noqa: SLF001
     p2 = dlg2.result_profile()
     assert p2 is not None and p2.mode == "dhcp"
+    assert p2.extra_ips == []
     log(f"dhcp dialog ok: {p2.summary()}")
 
-    # 编辑已有
+    # 编辑已有（含附加 IP）
     src = Profile(adapter_name="以太网", name="旧", mode="static", ip="10.0.0.9", prefix=16,
-                  gateway="10.0.0.1", dns1="114.114.114.114")
+                  extra_ips=["172.16.1.1/16"], gateway="10.0.0.1", dns1="114.114.114.114")
     dlg3 = ProfileDialog(profile=src, adapter_name="以太网", existing_names=["其它"])
     assert dlg3.edt_name.text() == "旧"
-    assert dlg3.edt_ip.text() == "10.0.0.9"
-    assert dlg3.cmb_prefix.currentData() == 16
-    log("edit dialog prefill ok")
+    assert len(dlg3._addr_rows) == 2  # noqa: SLF001  主 + 附加
+    assert dlg3._addr_rows[0].edt_ip.text() == "10.0.0.9"  # noqa: SLF001
+    assert dlg3._addr_rows[1].edt_ip.text() == "172.16.1.1"  # noqa: SLF001
+    assert dlg3._addr_rows[1].cmb_prefix.currentData() == 16  # noqa: SLF001
+    log("edit dialog prefill ok (with extra ip)")
 
     # 名称重复校验（应弹出 QMessageBox——offscreen 下用 monkeypatch 跳过）
     from PySide6.QtWidgets import QMessageBox
@@ -59,11 +68,18 @@ def main():
     QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
     dlg4 = ProfileDialog(adapter_name="以太网", existing_names=["重复名"])
     dlg4.edt_name.setText("重复名")
-    dlg4.edt_ip.setText("1.1.1.1")
+    dlg4._addr_rows[0].edt_ip.setText("1.1.1.1")  # noqa: SLF001
     dlg4._on_accept()  # noqa: SLF001
     assert dlg4.result_profile() is None
+    # 重复 IP 拒绝
+    dlg5 = ProfileDialog(adapter_name="以太网", existing_names=[])
+    dlg5.edt_name.setText("重复IP")
+    dlg5._addr_rows[0].edt_ip.setText("1.1.1.1")  # noqa: SLF001
+    dlg5._add_row("1.1.1.1", 24)  # noqa: SLF001
+    dlg5._on_accept()  # noqa: SLF001
+    assert dlg5.result_profile() is None
     QMessageBox.warning = orig
-    log("duplicate name rejected ok")
+    log("validation guards ok")
 
     print("DIALOG_SMOKE_DONE")
     return 0

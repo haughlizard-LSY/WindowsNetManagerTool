@@ -61,6 +61,24 @@ class TestConfigBlocks(unittest.TestCase):
         self.assertGreaterEqual(len(ips), 3, ips)
         self.assertTrue(all(x.endswith("/24") for x in ips), ips)
 
+    def test_parse_chinese_localized_block(self):
+        """CREATE_NO_WINDOW 下 netsh 输出中文标签：必须也能解析。"""
+        text = _load("netsh_show_config_zh.txt")
+        blocks = reader._split_config_blocks(text)
+        self.assertIn("WLAN", blocks)
+        detail = reader._parse_config_block(blocks["WLAN"])
+        self.assertIs(detail["dhcp"], True)
+        self.assertIn("10.100.128.192/21", detail["ipv4"])
+        self.assertIn("10.100.128.1", detail["gateways"])
+        self.assertIn("172.17.0.13", detail["dns"])
+        self.assertIn("172.17.0.14", detail["dns"])
+
+    def test_config_header_zh_hybrid(self):
+        """fixture 文件(混合中英)仍应正常识别。"""
+        text = _load("netsh_show_config.txt")
+        blocks = reader._split_config_blocks(text)
+        self.assertGreaterEqual(len(blocks), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

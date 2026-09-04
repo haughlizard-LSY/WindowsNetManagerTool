@@ -3,7 +3,7 @@
 安全设计：
 1. 应用前读取当前配置作为快照（回滚点）；
 2. 执行系统命令把档案写入网卡；
-3. 重新读取校验生效结果；
+3. 重新读取校验生效结果（带延迟重试，容忍网络栈刷新）；
 4. 失败时回滚到快照，并给出可读错误。
 
 支持 dry_run 预览将执行的命令，不真正改动系统。
@@ -11,12 +11,28 @@
 """
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from nicmanager.iputil import is_valid_ipv4, prefix_to_mask
+from nicmanager.iputil import is_valid_ipv4
 from nicmanager.models import AdapterInfo, Profile
 from nicmanager.system import proc as p
+
+
+def _log_apply(text: str) -> None:
+    """把应用过程写入 %APPDATA%\\NetManagerTool\\apply.log，便于排障。"""
+    try:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        d = os.path.join(base, "NetManagerTool")
+        os.makedirs(d, exist_ok=True)
+        import datetime
+        with open(os.path.join(d, "apply.log"), "a", encoding="utf-8") as f:
+            stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\n===== apply @ {stamp} =====\n{text}\n")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @dataclass
@@ -44,26 +60,38 @@ class ProfileApplier:
 
     # ---------------------------------------------------------------- 命令构造
     def _build_static_commands(self, adapter: AdapterInfo, pf: Profile) -> List[str]:
-        mask = prefix_to_mask(pf.prefix) or "255.255.255.0"
         cmds: List[str] = []
         # 1) 关闭 DHCP
         cmds.append(
             "Set-NetIPInterface -InterfaceIndex {0} -AddressFamily IPv4 -Dhcp Disabled".format(adapter.index)
         )
-        # 2) 移除旧 IPv4（避免地址残留/冲突）——保留当前要设的那个可省，此处统一移除后重建
+        # 2) 清理该接口可能残留的默认路由（否则 New-NetRoute 报 already exists）
+        cmds.append(
+            "Get-NetRoute -InterfaceIndex {0} -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
+            "Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue".format(adapter.index)
+        )
+        # 3) 移除旧 IPv4（避免地址残留/冲突）；无地址时无害，忽略
         cmds.append(
             "Get-NetIPAddress -InterfaceIndex {0} -AddressFamily IPv4 | "
             "Where-Object {{ $_.IPAddress -notlike '169.254.*' }} | "
-            "Remove-NetIPAddress -Confirm:$false".format(adapter.index)
+            "Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue".format(adapter.index)
         )
-        # 3) 新建主地址
-        add = "New-NetIPAddress -InterfaceIndex {0} -IPAddress {1} -PrefixLength {2}".format(
-            adapter.index, pf.ip, pf.prefix
-        )
+        # 4) 依次建立全部静态地址（不再把网关绑到 New-NetIPAddress）
+        addrs = pf.all_addresses()
+        for addr in addrs:
+            cmds.append(
+                "New-NetIPAddress -InterfaceIndex {0} -IPAddress {1} -PrefixLength {2}".format(
+                    adapter.index, addr["ip"], addr["prefix"]
+                )
+            )
+        # 5) 默认网关用独立 New-NetRoute 建立（须与主地址同网段，否则此步失败会被捕获）
         if is_valid_ipv4(pf.gateway):
-            add += " -DefaultGateway {0}".format(pf.gateway)
-        cmds.append(add)
-        # 4) DNS
+            cmds.append(
+                "New-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceIndex {0} -NextHop {1}".format(
+                    adapter.index, pf.gateway
+                )
+            )
+        # 6) DNS
         dns_list = [d for d in (pf.dns1, pf.dns2) if is_valid_ipv4(d)]
         if dns_list:
             cmds.append(
@@ -117,14 +145,17 @@ class ProfileApplier:
 
         # 快照用于回滚
         snapshot = self._read_snapshot(adapter)
-        # 一段脚本内顺序执行全部命令，任一步失败即中止并置 $fail
+        # 一段脚本内顺序执行全部命令。
+        # 注意：必须 $ErrorActionPreference='Stop' —— 否则 CimException（如
+        # "DefaultGateway already exists"）是非终止错误，try/catch 捕获不到，
+        # 命令“看起来成功”实际地址未生效（历史 bug：rc=0 但校验失败）。
         script_lines = [
-            "$ErrorActionPreference = 'Continue'",
+            "$ErrorActionPreference = 'Stop'",
             "$fail = $null",
         ]
         for cmd in commands:
             script_lines.append(
-                "try {{ {0} }} catch {{ if (-not $fail) {{ $fail = $_.Exception.Message }} }}".format(cmd)
+                "if (-not $fail) {{ try {{ {0} }} catch {{ $fail = $_.Exception.Message }} }}".format(cmd)
             )
         script_lines.append('if ($fail) { Write-Output ("FAILED: " + $fail); exit 1 }')
         script_lines.append("Write-Output 'OK'")
@@ -132,22 +163,30 @@ class ProfileApplier:
 
         rc, out, err = p.run_powershell_script(script, timeout=60.0)
         result.detail = (out + "\n" + err).strip()[-2000:]
+        _log_apply(f"[apply] 网卡={adapter.name}(idx={adapter.index})\n档案={pf.name} mode={pf.mode}\n"
+                   f"命令:\n" + "\n".join(commands) +
+                   f"\n\nrc={rc}\n输出:\n{out}\n错误:\n{err}")
         if rc != 0 or "FAILED" in out:
             result.message = "应用失败：\n" + result.detail
             # 回滚
             rb = self._rollback(adapter, snapshot)
             result.rolled_back = rb.ok
+            _log_apply(f"[apply] 命令失败 → 回滚={rb.ok}\n{rb.message}")
             if rb.ok:
                 result.message += "\n（已自动回滚到原配置）"
             return result
 
-        # 校验
+        # 校验（延迟重试，容忍网络栈刷新）
         verify = self._verify(adapter, pf)
+        _log_apply(f"[verify] 通过={verify.ok} detail={verify.detail}")
         if verify.ok:
             result.ok = True
             result.message = "配置已成功应用并生效。"
             if pf.mode == "static":
-                result.message += f"\nIP: {pf.ip}/{pf.prefix}" + (
+                addrs_desc = "、".join(
+                    f"{a['ip']}/{a['prefix']}" for a in pf.all_addresses()
+                )
+                result.message += f"\nIP: {addrs_desc}" + (
                     f"  网关: {pf.gateway}" if is_valid_ipv4(pf.gateway) else ""
                 )
             else:
@@ -156,6 +195,7 @@ class ProfileApplier:
             result.message = "命令执行成功，但校验未通过：\n" + verify.detail
             rb = self._rollback(adapter, snapshot)
             result.rolled_back = rb.ok
+            _log_apply(f"[verify] 校验失败 → 回滚={rb.ok}\n{rb.message}")
             if rb.ok:
                 result.message += "\n（已自动回滚到原配置）"
         return result
@@ -242,33 +282,67 @@ class ProfileApplier:
         return res
 
     def _verify(self, adapter: AdapterInfo, pf: Profile) -> ApplyResult:
-        """应用后读取实际配置，与目标档案比对。"""
+        """应用后读取实际配置，与目标档案比对（校验全部静态地址）。
+
+        延迟重试：写入后网络栈可能尚未完全刷新（尤其涉及 DHCP/网关切换），
+        先快速等待再读，减少误报。
+        """
         res = ApplyResult(ok=False)
-        try:
-            from nicmanager.system.reader import read_adapters
-            adapters, _ = read_adapters()
-            cur = next((a for a in adapters if a.index == adapter.index), None)
+        # 每次尝试收集一致的“细节”
+        attempts = [
+            (0.6, "首次读取"),
+            (1.2, "二次读取"),
+            (0.0, "三次读取"),
+        ]
+        last_detail = "读取失败"
+        cur = None
+        for delay, label in attempts:
+            if delay:
+                time.sleep(delay)
+            try:
+                from nicmanager.system.reader import read_adapters
+                adapters, channel = read_adapters()
+                cur = next((a for a in adapters if a.index == adapter.index), None)
+            except Exception as e:  # noqa: BLE001
+                last_detail = f"{label}读取异常：{e}"
+                continue
             if cur is None:
-                res.detail = "未找到目标网卡，无法校验"
-                return res
+                last_detail = f"{label}：未找到目标网卡 idx={adapter.index}"
+                continue
             if pf.mode == "dhcp":
                 if cur.dhcp_enabled is True:
                     res.ok = True
-                else:
-                    res.detail = f"期望 DHCP 开启，实际 dhcp={cur.dhcp_enabled}"
-                return res
-            # 静态：找目标 IP 前缀
-            target = f"{pf.ip}/{pf.prefix}"
-            if target in cur.ipv4:
+                    return res
+                last_detail = f"{label}：期望 DHCP 开启，实际 dhcp={cur.dhcp_enabled}"
+                continue
+            # 静态：校验每个期望地址
+            expected_set = {
+                f"{a['ip']}/{a['prefix']}" for a in pf.all_addresses()
+            }
+            actual_set = set()
+            for cidr in cur.ipv4:
+                ip, _, pre = cidr.partition("/")
+                try:
+                    actual_set.add(f"{ip}/{int(pre)}")
+                except ValueError:
+                    pass
+            missing = sorted(expected_set - actual_set)
+            if not missing:
+                # 地址全部就位；再看网关与 DNS（提示性，允许网络未刷新）
                 res.ok = True
+                res.detail = f"地址全部就位（实际 {cur.ipv4_label}）"
                 if pf.gateway and pf.gateway not in cur.gateways:
                     res.ok = False
-                    res.detail = f"网关未生效：期望 {pf.gateway}，实际 {cur.gateway_label}"
-                if pf.dns1 and pf.dns1 not in cur.dns_servers:
+                    res.detail = (f"网关未生效：期望 {pf.gateway}，实际 {cur.gateway_label}"
+                                  f"；地址 {cur.ipv4_label}")
+                if res.ok and pf.dns1 and pf.dns1 not in cur.dns_servers:
                     res.ok = False
-                    res.detail = f"首选 DNS 未生效：期望 {pf.dns1}，实际 {cur.dns_label}"
-            else:
-                res.detail = f"地址未生效：期望 {target}，实际 {cur.ipv4_label}"
-        except Exception as e:  # noqa: BLE001
-            res.detail = f"校验异常：{e}"
+                    res.detail = (f"首选 DNS 未生效：期望 {pf.dns1}，实际 {cur.dns_label}"
+                                  f"；地址 {cur.ipv4_label}")
+                if res.ok:
+                    return res
+                last_detail = res.detail
+                continue
+            last_detail = f"{label}：以下地址未生效：{', '.join(missing)}；实际 {cur.ipv4_label}"
+        res.detail = last_detail
         return res

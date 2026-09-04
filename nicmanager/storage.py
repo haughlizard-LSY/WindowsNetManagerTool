@@ -1,6 +1,7 @@
 """Profile 的 SQLite 持久化。"""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     mode         TEXT NOT NULL DEFAULT 'static',
     ip           TEXT NOT NULL DEFAULT '',
     prefix       INTEGER NOT NULL DEFAULT 24,
+    extra_ips    TEXT NOT NULL DEFAULT '[]',
     gateway      TEXT NOT NULL DEFAULT '',
     dns1         TEXT NOT NULL DEFAULT '',
     dns2         TEXT NOT NULL DEFAULT '',
@@ -89,15 +91,20 @@ class ProfileStore:
     def _init_schema(self) -> None:
         with self._session() as conn:
             conn.executescript(_SCHEMA)
+            # 旧库迁移：老版本 profiles 表没有 extra_ips 列（v0.1 之前只支持单个静态 IP）
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(profiles)").fetchall()}
+            if "extra_ips" not in cols:
+                conn.execute("ALTER TABLE profiles ADD COLUMN extra_ips TEXT NOT NULL DEFAULT '[]'")
 
     # ---------- CRUD ----------
     def add(self, p: Profile) -> Profile:
         ts = now_iso()
+        extra = json.dumps(p.extra_ips, ensure_ascii=False)
         with self._session() as conn:
             cur = conn.execute(
-                "INSERT INTO profiles (adapter_name,name,mode,ip,prefix,gateway,dns1,dns2,note,created_at,updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (p.adapter_name, p.name.strip(), p.mode, p.ip, p.prefix, p.gateway, p.dns1, p.dns2,
+                "INSERT INTO profiles (adapter_name,name,mode,ip,prefix,extra_ips,gateway,dns1,dns2,note,created_at,updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (p.adapter_name, p.name.strip(), p.mode, p.ip, p.prefix, extra, p.gateway, p.dns1, p.dns2,
                  p.note, ts, ts),
             )
             p.id = cur.lastrowid
@@ -106,11 +113,12 @@ class ProfileStore:
 
     def update(self, p: Profile) -> None:
         ts = now_iso()
+        extra = json.dumps(p.extra_ips, ensure_ascii=False)
         with self._session() as conn:
             conn.execute(
-                "UPDATE profiles SET adapter_name=?,name=?,mode=?,ip=?,prefix=?,gateway=?,dns1=?,dns2=?,note=?,updated_at=?"
+                "UPDATE profiles SET adapter_name=?,name=?,mode=?,ip=?,prefix=?,extra_ips=?,gateway=?,dns1=?,dns2=?,note=?,updated_at=?"
                 " WHERE id=?",
-                (p.adapter_name, p.name.strip(), p.mode, p.ip, p.prefix, p.gateway, p.dns1, p.dns2,
+                (p.adapter_name, p.name.strip(), p.mode, p.ip, p.prefix, extra, p.gateway, p.dns1, p.dns2,
                  p.note, ts, p.id),
             )
             p.updated_at = ts
@@ -153,6 +161,10 @@ class ProfileStore:
 
     @staticmethod
     def _row_to_profile(row: sqlite3.Row) -> Profile:
+        try:
+            extra = json.loads(row["extra_ips"] or "[]")
+        except (ValueError, TypeError):
+            extra = []
         return Profile(
             id=row["id"],
             adapter_name=row["adapter_name"],
@@ -160,6 +172,7 @@ class ProfileStore:
             mode=row["mode"],
             ip=row["ip"],
             prefix=row["prefix"],
+            extra_ips=[str(x) for x in extra if x],
             gateway=row["gateway"],
             dns1=row["dns1"],
             dns2=row["dns2"],

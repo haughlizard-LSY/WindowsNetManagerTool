@@ -117,6 +117,11 @@ class MainWindow(QMainWindow):
         cur_form.addRow("IPv4 地址:", self.lbl_ipv4)
         cur_form.addRow("默认网关:", self.lbl_gw)
         cur_form.addRow("DNS 服务器:", self.lbl_dns)
+        # “存为档案”操作行
+        self.btn_save_current = QPushButton("💾 保存当前配置为档案…")
+        self.btn_save_current.setToolTip("把当前生效的配置（IP/网关/DNS）预填到新档案，便于快速建档")
+        self.btn_save_current.setEnabled(False)
+        cur_form.addRow(self.btn_save_current)
         right_lay.addWidget(grp_cur)
 
         # 档案区
@@ -174,6 +179,7 @@ class MainWindow(QMainWindow):
         self.btn_apply.clicked.connect(self._apply_selected)
         self.btn_preview.clicked.connect(self._preview_selected)
         self.btn_elevate.clicked.connect(self._request_elevate)
+        self.btn_save_current.clicked.connect(self._save_current_as_profile)
 
     def _build_menu(self) -> None:
         mbar = self.menuBar()
@@ -285,6 +291,7 @@ class MainWindow(QMainWindow):
         has = bool(adapters)
         self.btn_new.setEnabled(has)
         self.btn_preview.setEnabled(has)
+        self.btn_save_current.setEnabled(has)
 
     @guard_slot("刷新失败处理")
     def _on_refresh_error(self, msg: str) -> None:
@@ -317,6 +324,7 @@ class MainWindow(QMainWindow):
         self.profiles = self.store.list_by_adapter(adapter_name)
         self._render_profiles()
         self.btn_new.setEnabled(True)
+        self.btn_save_current.setEnabled(True)
         self.btn_edit.setEnabled(False)
         self.btn_del.setEnabled(False)
         self.btn_apply.setEnabled(False)
@@ -386,6 +394,28 @@ class MainWindow(QMainWindow):
             self._load_profiles(a.name)
             self._set_status(f"已新增档案「{p.name}」")
 
+    @guard_slot("保存当前配置")
+    def _save_current_as_profile(self) -> None:
+        """把当前生效配置预填到新建档案对话框，用户命名后保存。"""
+        a = self._current_adapter_for_edit()
+        if not a:
+            return
+        prefill = a.to_profile()
+        if not prefill.ip and prefill.mode == "static":
+            # 没有真实静态地址时直接给空静态表单
+            pass
+        existing = [p.name for p in self.profiles]
+        dlg = ProfileDialog(self, adapter_name=a.name, existing_names=existing, prefill=prefill)
+        if dlg.exec() == QDialog.Accepted and dlg.result_profile():
+            p = dlg.result_profile()
+            errs = p.validate()
+            if errs:
+                QMessageBox.warning(self, "校验失败", "\n".join(errs))
+                return
+            self.store.add(p)
+            self._load_profiles(a.name)
+            self._set_status(f"已将当前配置保存为档案「{p.name}」")
+
     @guard_slot("编辑档案")
     def _edit_selected(self) -> None:
         a = self.current_adapter
@@ -445,12 +475,14 @@ class MainWindow(QMainWindow):
             )
             return
         summary = p.summary()
+        extra = ""
         if p.mode == "static":
-            extra = f"\nIP: {p.ip}/{p.prefix}"
+            addrs = "\n".join(f"  · {addr['ip']}/{addr['prefix']}" for addr in p.all_addresses())
+            extra = f"\n静态地址：\n{addrs}"
             if p.gateway:
-                extra += f"\n网关: {p.gateway}"
+                extra += f"\n网关：{p.gateway}"
             if p.dns1:
-                extra += f"\nDNS: {p.dns1}" + (f"、{p.dns2}" if p.dns2 else "")
+                extra += f"\nDNS：{p.dns1}" + (f"、{p.dns2}" if p.dns2 else "")
         else:
             extra = "\n将启用 DHCP 自动获取 IP 与 DNS。"
         ret = QMessageBox.warning(

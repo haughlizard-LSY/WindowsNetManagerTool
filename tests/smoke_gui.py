@@ -61,6 +61,12 @@ def main() -> int:
                 win.list_adapters.setCurrentRow(target)
                 log(f"selected 以太网 row={target} profiles={len(win.profiles)} rows={win.table_profiles.rowCount()} "
                     f"names={[win.profiles[i].name for i in range(len(win.profiles))]}")
+                # ---- 验证“保存当前配置为档案”prefill 链路（不真正 exec 模态框）----
+                adapter = win.current_adapter
+                pref = adapter.to_profile()
+                log(f"save-current prefill: mode={pref.mode} ip={pref.ip}/{pref.prefix} "
+                    f"extra={pref.extra_ips} gw={pref.gateway} dns={pref.dns1},{pref.dns2} "
+                    f"save_btn_enabled={win.btn_save_current.isEnabled()}")
             app.quit()
         except Exception as e:  # noqa: BLE001
             log(f"exception: {e!r}")
