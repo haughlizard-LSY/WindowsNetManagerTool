@@ -1,0 +1,121 @@
+﻿
+Configuration for interface "以太网"
+    DHCP enabled:                         No
+    IP Address:                           10.10.100.24
+    Subnet Prefix:                        10.10.100.0/24 (mask 255.255.255.0)
+    Default Gateway:                      10.10.100.1
+    Gateway Metric:                       256
+    InterfaceMetric:                      25
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "以太网 3"
+    DHCP enabled:                         No
+    IP Address:                           192.168.34.101
+    Subnet Prefix:                        192.168.34.0/24 (mask 255.255.255.0)
+    IP Address:                           192.168.34.155
+    Subnet Prefix:                        192.168.34.0/24 (mask 255.255.255.0)
+    IP Address:                           192.168.34.201
+    Subnet Prefix:                        192.168.34.0/24 (mask 255.255.255.0)
+    InterfaceMetric:                      25
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "以太网 4"
+    DHCP enabled:                         No
+    IP Address:                           172.122.85.35
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.245.29
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.245.31
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.245.215
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.245.216
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.246.29
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    IP Address:                           172.122.246.215
+    Subnet Prefix:                        172.122.0.0/16 (mask 255.255.0.0)
+    InterfaceMetric:                      25
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "以太网 2"
+    DHCP enabled:                         No
+    IP Address:                           172.122.85.37
+    Subnet Prefix:                        172.0.0.0/8 (mask 255.0.0.0)
+    IP Address:                           172.122.245.27
+    Subnet Prefix:                        172.0.0.0/8 (mask 255.0.0.0)
+    IP Address:                           172.122.245.33
+    Subnet Prefix:                        172.0.0.0/8 (mask 255.0.0.0)
+    InterfaceMetric:                      25
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "以太网 5"
+    DHCP enabled:                         No
+    IP Address:                           192.0.0.1
+    Subnet Prefix:                        192.0.0.0/24 (mask 255.255.255.0)
+    IP Address:                           192.0.0.4
+    Subnet Prefix:                        192.0.0.0/24 (mask 255.255.255.0)
+    InterfaceMetric:                      25
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "本地连接* 1"
+    DHCP enabled:                         Yes
+    InterfaceMetric:                      25
+    通过 DHCP 配置的 DNS 服务器:      无
+    用哪个前缀注册:                   只是主要
+    WINS servers configured through DHCP: None
+
+Configuration for interface "本地连接* 2"
+    DHCP enabled:                         Yes
+    InterfaceMetric:                      25
+    通过 DHCP 配置的 DNS 服务器:      无
+    用哪个前缀注册:                   只是主要
+    WINS servers configured through DHCP: None
+
+Configuration for interface "WLAN"
+    DHCP enabled:                         Yes
+    IP Address:                           10.100.128.192
+    Subnet Prefix:                        10.100.128.0/21 (mask 255.255.248.0)
+    Default Gateway:                      10.100.128.1
+    Gateway Metric:                       0
+    InterfaceMetric:                      35
+    通过 DHCP 配置的 DNS 服务器:      172.17.0.13
+                                          172.17.0.14
+    用哪个前缀注册:                   只是主要
+    WINS servers configured through DHCP: None
+
+Configuration for interface "蓝牙网络连接"
+    DHCP enabled:                         Yes
+    InterfaceMetric:                      65
+    通过 DHCP 配置的 DNS 服务器:      无
+    用哪个前缀注册:                   只是主要
+    WINS servers configured through DHCP: None
+
+Configuration for interface "Loopback Pseudo-Interface 1"
+    DHCP enabled:                         No
+    IP Address:                           127.0.0.1
+    Subnet Prefix:                        127.0.0.0/8 (mask 255.0.0.0)
+    InterfaceMetric:                      75
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   只是主要
+    Statically Configured WINS Servers:   None
+
+Configuration for interface "vEthernet (WSL (Hyper-V firewall))"
+    DHCP enabled:                         No
+    IP Address:                           172.22.192.1
+    Subnet Prefix:                        172.22.192.0/20 (mask 255.255.240.0)
+    InterfaceMetric:                      5000
+    静态配置的 DNS 服务器:            无
+    用哪个前缀注册:                   无
+    Statically Configured WINS Servers:   None
+

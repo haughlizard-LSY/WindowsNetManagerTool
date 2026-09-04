@@ -1,0 +1,10 @@
+﻿
+Admin State    State          Type             Interface Name
+-------------------------------------------------------------------------
+Enabled        Connected      Dedicated        以太网 2
+Enabled        Connected      Dedicated        以太网 3
+Enabled        Connected      Dedicated        以太网 4
+Enabled        Connected      Dedicated        以太网 5
+Enabled        Connected      Dedicated        以太网
+Enabled        Connected      Dedicated        WLAN
+

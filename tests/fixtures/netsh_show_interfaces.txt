@@ -1,0 +1,15 @@
+﻿
+Idx     Met         MTU          State                Name
+---  ----------  ----------  ------------  ---------------------------
+  1          75  4294967295  connected     Loopback Pseudo-Interface 1
+  2          35        1500  connected     WLAN
+  9          65        1500  disconnected  蓝牙网络连接
+ 18          25        1500  disconnected  本地连接* 1
+ 20          25        1500  disconnected  本地连接* 2
+ 10          25        1500  connected     以太网
+ 19          25        1500  connected     以太网 3
+  5          25        1500  connected     以太网 4
+ 11          25        1500  connected     以太网 2
+  7          25        1500  connected     以太网 5
+ 83        5000        1500  disconnected  vEthernet (WSL (Hyper-V firewall))
+
